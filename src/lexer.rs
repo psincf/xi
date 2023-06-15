@@ -1,37 +1,42 @@
 use std::str::Chars;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Span {
     line: i32,
     column: i32
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Token {
-    span: Span,
-    kind: TokenKind
+    pub span: Span,
+    pub kind: TokenKind
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Integer {
     Int(isize),
     I32(i32),
     U32(u32)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Float {
     Float(f64),
     F32(f32),
     F64(f64)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum TokenKind {
     Ident(String),
     Integer(Integer),
     Float(Float),
     String(String),
+
+    Colon,
+    Semicolon,
+    Comma,
+    Dot,
 
     KeywordLet,
     KeywordEnum,
@@ -43,9 +48,22 @@ pub enum TokenKind {
     OpEqual,
     OpMinus,
     OpPlus,
+    
+    ExclamationMark,
+
+
+    LeftParen,
+    RightParen,
+    LeftSquare,
+    RightSquare,
+    LeftCurly,
+    RightCurly,
+
+
+    WhiteSpace
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CharInfo {
     c: char,
     span: Span,
@@ -116,7 +134,7 @@ impl<'a> CharIterator<'a> {
 }
 
 pub struct Lexer<'a> {
-    tokens: Vec<Token>,
+    pub tokens: Vec<Token>,
     source: &'a String,
     chars_iterator: CharIterator<'a>,
 }
@@ -137,24 +155,51 @@ impl<'a> Lexer<'a> {
             if char_info_option.is_none() { break }
             let c_info = char_info_option.unwrap();
             let c = c_info.c;
-
-            if c == '\u{d}' {
-                continue
-            }
+            let span = c_info.span;
 
             if c == '\u{a}' {
+                self.tokens.push(Token { span, kind: TokenKind::NewLine });
                 continue
             }
 
-            if c.is_alphabetic() {
+            else if c.is_alphabetic() {
                 self.parse_word();
                 continue
             }
 
-            if c.is_numeric() {
+            else if c.is_numeric() {
                 self.parse_number();
                 continue
             }
+
+            else if c == '"' {
+                self.parse_string();
+                continue
+            }
+
+            else if c == ' ' {
+                self.tokens.push(Token { span, kind: TokenKind::WhiteSpace });
+                continue
+            }
+            else if c == ':' { self.tokens.push(Token { span, kind: TokenKind::Colon }); continue }
+            else if c == ';' { self.tokens.push(Token { span, kind: TokenKind::Semicolon }); continue }
+            else if c == '!' { self.tokens.push(Token { span, kind: TokenKind::ExclamationMark }); continue }
+            else if c == '.' { self.tokens.push(Token { span, kind: TokenKind::Dot }); continue }
+            else if c == ',' { self.tokens.push(Token { span, kind: TokenKind::Comma }); continue }
+
+            else if c == '(' { self.tokens.push(Token { span, kind: TokenKind::LeftParen }); continue }
+            else if c == ')' { self.tokens.push(Token { span, kind: TokenKind::RightParen }); continue }
+            else if c == '[' { self.tokens.push(Token { span, kind: TokenKind::LeftSquare }); continue }
+            else if c == ']' { self.tokens.push(Token { span, kind: TokenKind::RightSquare }); continue }
+            else if c == '{' { self.tokens.push(Token { span, kind: TokenKind::LeftCurly }); continue }
+            else if c == '}' { self.tokens.push(Token { span, kind: TokenKind::RightCurly }); continue }
+            
+            else if c == '=' { self.tokens.push(Token { span, kind: TokenKind::OpEqual }); continue }
+            else if c == '+' { self.tokens.push(Token { span, kind: TokenKind::OpPlus }); continue }
+            else if c == '-' { self.tokens.push(Token { span, kind: TokenKind::OpMinus }); continue }
+
+
+            panic!("char inconpatible: {:?}", c_info);
         }
 
         return  &self.tokens;
@@ -185,7 +230,7 @@ impl<'a> Lexer<'a> {
         }
 
         if word == "let" { self.tokens.push(Token { span, kind: TokenKind::KeywordLet }) }
-        else if word == "enum"  { self.tokens.push(Token { span, kind: TokenKind::KeywordLet }) }
+        else if word == "enum"  { self.tokens.push(Token { span, kind: TokenKind::KeywordEnum }) }
         else if word == "struct"  { self.tokens.push(Token { span, kind: TokenKind::KeywordStruct }) }
         else if word == "fn"  { self.tokens.push(Token { span, kind: TokenKind::KeywordFn }) }
 
@@ -222,6 +267,8 @@ impl<'a> Lexer<'a> {
             panic!("Incorect num! {:?}", span);
         }
 
+
+        //TODO: Do it better
         if num.parse::<i32>().is_ok() {
             self.tokens.push(Token { span, kind: TokenKind::Integer(Integer::I32(num.parse::<i32>().unwrap())) })
         } else if num.parse::<f32>().is_ok() {
@@ -230,5 +277,25 @@ impl<'a> Lexer<'a> {
             panic!("Incorect num! {:?}", span);
         }
 
+    }
+
+    fn parse_string(&mut self) {
+        let info = self.chars_iterator.char_info();
+        let mut string = String::new();
+        let span = info.span;
+
+        loop {
+            let c_option = self.chars_iterator.next();
+            if c_option.is_none() { break }
+            let c = c_option.unwrap().c;
+
+            if c != '"' {
+                string.push(c);
+                continue
+            } else {
+                self.tokens.push(Token { span, kind: TokenKind::String(string) });
+                break
+            }
+        }
     }
 }

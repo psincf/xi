@@ -1,11 +1,25 @@
 mod lexer;
-use lexer::Lexer;
+mod parser;
+
 mod pipeline;
+mod utils;
 
 fn main() {
-    println!("Hello, world!");
-
     let file_path = std::env::args().nth(1).unwrap();
-    let mut pipeline = pipeline::Pipeline::new(file_path);
+    
+    let mut pipeline_options = pipeline::PipelineOptions::default();
+
+    for arg in std::env::args().skip(2) {
+        let (minus_minus, arg_strip) = arg.split_at(2);
+        if minus_minus != "--" {
+            panic!("argument \"{arg}\" not recognized")
+        }
+
+        if arg_strip == "write_tokens" { pipeline_options.write_tokens = true; }
+        else if arg_strip == "write_ast" { pipeline_options.write_ast = true; }
+        else { panic!("argument \"{arg}\" not recognized") }
+    }
+
+    let mut pipeline = pipeline::Pipeline::new(file_path, pipeline_options);
     pipeline.solve();
 }
