@@ -3,7 +3,7 @@ use super::lexer::TokenKind;
 
 #[derive(Debug)]
 pub struct Ast {
-    pub inner: Vec<Declaration>,
+    pub inner: Vec<Node>,
 }
 
 #[derive(Debug)]
@@ -44,11 +44,18 @@ pub struct VarDecl {
 }
 
 #[derive(Debug)]
-pub enum Declaration {
+pub struct ModeDecl {
+    name: String
+}
+
+#[derive(Debug)]
+pub enum Statement {
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
     FnDecl(FnDecl),
     VarDecl(VarDecl),
+    ModDecl(ModeDecl),
+    Expr(Expr)
 }
 
 #[derive(Debug)]
@@ -73,9 +80,16 @@ pub enum Lit {
 }
 
 #[derive(Debug)]
+pub struct FnCall {
+    ident: Box<Expr>,
+    arguments: Vec<Expr>,
+}
+
+#[derive(Debug)]
 pub enum Expr {
     Ident(String),
     Literal(Lit),
+    FnCall(FnCall),
     Operation(Operation),
     Paren(Box<Expr>),
 }
@@ -83,7 +97,8 @@ pub enum Expr {
 #[derive(Debug)]
 pub enum Node {
     Expr(Expr),
-    Declaration(Declaration)
+    Statement(Statement),
+    None
 }
 
 pub struct TokenIterator<'a> {
@@ -151,6 +166,10 @@ impl<'a> TokenIterator<'a> {
         return token
     }
 
+    pub fn take(&mut self) {
+        self.next().unwrap();
+    }
+
     pub fn reverse(&mut self) {
         self.reverse = true;
     }
@@ -173,16 +192,146 @@ impl<'a> AstParser<'a> {
 
     pub fn parse(&mut self) -> Result<(), String> {
         loop {
-            let token_option = self.tokens.next();
-            if token_option.is_none() { return Ok(()) }
+            let next_token = self.tokens.next_nowh_nonl_notake();
+            if next_token.is_none() { return Ok(()) }
 
-            let token = token_option.unwrap();
-
-            match token.kind {
-                TokenKind::KeywordFn => { self.parse_fndecl()? }
-                _ => {}
-            }
+            let node = self.parse_node()?;
+            self.ast.inner.push(node);
         }
+    }
+
+    fn parse_node(&mut self) -> Result<Node, String> {
+        let token = self.tokens.next_nowh_nonl_notake().unwrap();
+        match token.kind {
+            TokenKind::Semicolon => { self.tokens.take(); return Ok(Node::None) }
+            TokenKind::KeywordFn => { return Ok(Node::Statement(Statement::FnDecl(self.parse_fndecl()?))) }
+            TokenKind::KeywordMod => { return Ok(Node::Statement(Statement::ModDecl(self.parse_mod()?))) }
+            TokenKind::Ident(_) | TokenKind::Float(_) | TokenKind::Integer(_) => {
+                return Ok(
+                    Node::Statement(self.parse_expr_stmt()?)
+                );
+            },
+            TokenKind::KeywordLet => { return Ok(Node::Statement(Statement::VarDecl(self.parse_let_stmt()?))) }
+            _ => { Err(format!("Node : {:?}", token)) }
+        }
+
+    }
+
+    fn parse_mod(&mut self) -> Result<ModeDecl, String> {
+        self.parse_exact_nowh_nonl(TokenKind::KeywordMod)?;
+        let name = self.parse_ident_nowh_nonl()?;
+        self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
+        
+        return Ok(
+            ModeDecl { name }
+        )
+    }
+
+    fn parse_expr(&mut self) -> Result<Expr, String> {
+        let token = self.tokens.next_nowh_nonl().unwrap();
+        let expr;
+        match token.kind {
+            TokenKind::Ident(ident) => { expr = self.parse_expr_with_lhs(Expr::Ident(ident))? }
+            TokenKind::Float(f) => {
+                let lit;
+                match f {
+                    crate::lexer::Float::F32(f) => { lit = Lit::Float(f)}
+                    crate::lexer::Float::F64(f) => { lit = Lit::Float(f as f32)}
+                    crate::lexer::Float::Float(f) => { lit = Lit::Float(f as f32)}
+                }
+                expr = self.parse_expr_with_lhs(Expr::Literal(lit))?
+            }
+            TokenKind::Integer(i) => {
+                let lit;
+                match i {
+                    crate::lexer::Integer::I32(i) => { lit = Lit::Int(i)}
+                    crate::lexer::Integer::U32(i) => { lit = Lit::Int(i as i32)}
+                    crate::lexer::Integer::Int(i) => { lit = Lit::Int(i as i32)}
+                }
+                expr = self.parse_expr_with_lhs(Expr::Literal(lit))?
+            }
+            TokenKind::Semicolon => { panic!() }
+            TokenKind::String(s) => { expr = self.parse_expr_with_lhs(Expr::Literal(Lit::String(s)))? }
+            _ => { panic!("{:?}", token) }
+        }
+
+        return Ok(expr)
+    }
+
+    fn parse_expr_stmt(&mut self) -> Result<Statement, String> {
+        let expr = self.parse_expr()?;
+        self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
+        return Ok(
+            Statement::Expr(expr)
+        )
+    }
+
+    fn parse_expr_with_lhs(&mut self, lhs: Expr) -> Result<Expr, String> {
+        let next_token = self.tokens.next_nowh_nonl().unwrap();
+        if next_token.kind == TokenKind::Semicolon || next_token.kind == TokenKind::Colon || next_token.kind == TokenKind::RightParen {
+            self.tokens.reverse();
+            return Ok( lhs );
+        }
+        if next_token.kind.is_operator() {
+            self.tokens.reverse();
+
+            return Ok(Expr::Operation(self.parse_expr_operation(lhs)?))
+        }
+        if next_token.kind == TokenKind::LeftParen {
+            let args = self.parse_args_fncall()?;
+            return Ok( Expr::FnCall( FnCall { ident: Box::new(lhs), arguments: args } ) )
+        }
+
+        panic!("{:?}, {:?}", next_token, lhs);
+    }
+
+    fn parse_args_fncall(&mut self) -> Result<Vec<Expr>, String> {
+        let mut arguments = Vec::new();
+        loop {
+            let next_token = self.tokens.next_nowh_nonl().unwrap();
+            if next_token.kind == TokenKind::RightParen { return Ok(arguments) }
+            self.tokens.reverse();
+
+            let arg = self.parse_expr()?;
+            arguments.push(arg);
+
+            
+            let next_token = self.tokens.next_nowh_nonl().unwrap();
+            if next_token.kind == TokenKind::Comma { continue }
+            if next_token.kind == TokenKind::RightParen { return Ok(arguments) }
+        }
+    }
+
+    fn parse_let_stmt(&mut self) -> Result<VarDecl, String> {
+        self.parse_exact_nowh_nonl(TokenKind::KeywordLet)?;
+        let ident = self.parse_ident_nowh_nonl()?;
+        
+        self.parse_exact_nowh_nonl(TokenKind::OpEqual)?;
+        let expr = self.parse_expr()?;
+        self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
+
+        let decl = VarDecl {
+            mutable: true,
+            ident,
+            expr
+        };
+
+        return Ok(decl)
+    }
+
+    fn parse_expr_operation(&mut self, lhs: Expr) -> Result<Operation, String> {
+        let next_token = self.tokens.next_nowh_nonl().unwrap();
+        let operator;
+        match next_token.kind {
+            TokenKind::OpEqual => { operator = Operator::Equal }
+            TokenKind::OpMinus => { operator = Operator::Minus }
+            TokenKind::OpPlus => { operator = Operator::Add }
+            _ => { return Err(format!("Err expr, {:?}", next_token.span)) }
+        }
+
+        let rhs = self.parse_expr()?;
+
+        return Ok(Operation { lhs: Box::new(lhs), rhs: Box::new(rhs), operator })
     }
 
     fn parse_exact_nowh_nonl(&mut self, token_kind: TokenKind) -> Result<(), String> {
@@ -211,13 +360,15 @@ impl<'a> AstParser<'a> {
         }
     }
 
-    fn parse_fndecl(&mut self) -> Result<(), String> {
+    fn parse_fndecl(&mut self) -> Result<(FnDecl), String> {
         let mut fn_decl = FnDecl {
             name: String::new(),
             paramaters: Vec::new(),
             return_type: Type::None,
             body: Vec::new()
         };
+
+        self.parse_exact_nowh_nonl(TokenKind::KeywordFn)?;
 
         let token_name = self.parse_ident_nowh_nonl()?;
         fn_decl.name = token_name;
@@ -227,7 +378,7 @@ impl<'a> AstParser<'a> {
         let mut params = Vec::new();
         loop {
             let next_token = self.tokens.next_nowh_nonl_notake();
-            if next_token.is_none() { return Err("Err".to_string()); }
+            if next_token.is_none() { return Err("Params".to_string()); }
             if next_token.unwrap().kind == TokenKind::RightParen { break }
 
             let name_param = self.parse_ident_nowh_nonl()?;
@@ -241,23 +392,27 @@ impl<'a> AstParser<'a> {
             params.push(param);
 
             let next_token = self.tokens.next_nowh_nonl_notake();
-            if next_token.is_none() { return Err("Err".to_string()); }
+            if next_token.is_none() { return Err("Params2".to_string()); }
             if next_token.unwrap().kind == TokenKind::Comma { continue }
             else { break }
         }
 
         self.parse_exact_nowh_nonl(TokenKind::RightParen)?;
         self.parse_exact_nowh_nonl(TokenKind::LeftCurly)?;
+        let mut nodes = Vec::new();
         loop {
-            //TODO
-            break
+            let next_token = self.tokens.next_nowh_nonl_notake();
+            if next_token.is_none() { return Err("BodyFn".to_string()); }
+            if next_token.unwrap().kind == TokenKind::RightCurly { break }
+
+            let node = self.parse_node()?;
+            nodes.push(node);
         }
         self.parse_exact_nowh_nonl(TokenKind::RightCurly)?;
 
+        fn_decl.body = nodes;
 
-
-
-        Ok(())
+        Ok(fn_decl)
 
 
     }

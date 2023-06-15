@@ -40,6 +40,7 @@ pub enum TokenKind {
 
     KeywordLet,
     KeywordEnum,
+    KeywordMod,
     KeywordStruct,
     KeywordFn,
 
@@ -63,6 +64,15 @@ pub enum TokenKind {
     WhiteSpace
 }
 
+impl TokenKind {
+    pub fn is_operator(&self) -> bool {
+        match self {
+            Self::OpEqual | Self::OpMinus | Self::OpPlus => { return true }
+            _ => { return false }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct CharInfo {
     c: char,
@@ -82,8 +92,8 @@ impl<'a> CharIterator<'a> {
         Self {
             actual_char_info: None,
             chars: source.chars(),
-            column: 0,
-            line: 0,
+            column: 1,
+            line: 1,
             reverse: false,
         }
     }
@@ -231,6 +241,7 @@ impl<'a> Lexer<'a> {
 
         if word == "let" { self.tokens.push(Token { span, kind: TokenKind::KeywordLet }) }
         else if word == "enum"  { self.tokens.push(Token { span, kind: TokenKind::KeywordEnum }) }
+        else if word == "mod"  { self.tokens.push(Token { span, kind: TokenKind::KeywordMod }) }
         else if word == "struct"  { self.tokens.push(Token { span, kind: TokenKind::KeywordStruct }) }
         else if word == "fn"  { self.tokens.push(Token { span, kind: TokenKind::KeywordFn }) }
 
