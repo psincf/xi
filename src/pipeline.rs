@@ -71,8 +71,7 @@ impl Pipeline {
             let mut file = std::fs::File::create("xi_output/ast.txt").unwrap();
             let mut string = Vec::new();
 
-            let list_tokens = utils::FmtAst(&parser.ast);
-            write!(&mut string, "{}", list_tokens).unwrap();
+            write!(&mut string, "{:#?}", &parser.ast).unwrap();
             file.write(&string).unwrap();
         }
     }

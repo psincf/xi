@@ -7,13 +7,21 @@ pub struct Ast {
 }
 
 #[derive(Debug)]
+pub struct StructField {
+    name: String,
+    type_: Type,
+}
+
+#[derive(Debug)]
 pub struct StructDecl {
-    
+    name: String,
+    fields: Vec<StructField>
 }
 
 #[derive(Debug)]
 pub struct EnumDecl {
-    
+    name: String,
+    variants: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -63,6 +71,8 @@ pub enum Operator {
     Equal,
     Add,
     Minus,
+    Multiply,
+    Divide,
 }
 
 #[derive(Debug)]
@@ -130,6 +140,12 @@ impl<'a> TokenIterator<'a> {
 
         let token: &Token = token_option.unwrap();
         self.actual_token = Some(token.clone());
+
+        match token.kind {
+            TokenKind::CommentLine(_) => { return self.next() }
+            TokenKind::CommentMultiLine(_) => {return self.next() }
+            _ => {}
+        }
         
         return Some(token.clone())
     }
@@ -204,8 +220,13 @@ impl<'a> AstParser<'a> {
         let token = self.tokens.next_nowh_nonl_notake().unwrap();
         match token.kind {
             TokenKind::Semicolon => { self.tokens.take(); return Ok(Node::None) }
+
             TokenKind::KeywordFn => { return Ok(Node::Statement(Statement::FnDecl(self.parse_fndecl()?))) }
             TokenKind::KeywordMod => { return Ok(Node::Statement(Statement::ModDecl(self.parse_mod()?))) }
+            TokenKind::KeywordEnum => { return Ok(Node::Statement(Statement::EnumDecl(self.parse_enum_decl()?))) }
+            TokenKind::KeywordStruct => { return Ok(Node::Statement(Statement::StructDecl(self.parse_struct_decl()?))) }
+
+
             TokenKind::Ident(_) | TokenKind::Float(_) | TokenKind::Integer(_) => {
                 return Ok(
                     Node::Statement(self.parse_expr_stmt()?)
@@ -215,6 +236,59 @@ impl<'a> AstParser<'a> {
             _ => { Err(format!("Node : {:?}", token)) }
         }
 
+    }
+
+    fn parse_enum_decl(&mut self) -> Result<EnumDecl, String> {
+        self.parse_exact_nowh_nonl(TokenKind::KeywordEnum)?;
+        let name = self.parse_ident_nowh_nonl()?;
+        self.parse_exact_nowh_nonl(TokenKind::LeftCurly)?;
+        let mut variants = Vec::new();
+        loop {
+            let next_token = self.parse_ident_nowh_nonl();
+            if next_token.is_err() { self.tokens.reverse(); break }
+            let variant_name = next_token.unwrap();
+            variants.push(variant_name);
+
+            let maybe_comma = self.parse_exact_nowh_nonl(TokenKind::Comma);
+            if maybe_comma.is_err() { self.tokens.reverse(); break }
+        }
+        self.parse_exact_nowh_nonl(TokenKind::RightCurly)?;
+
+        return Ok(
+            EnumDecl {
+                name,
+                variants
+            }
+        )
+    }
+
+    fn parse_struct_decl(&mut self) -> Result<StructDecl, String> {
+        self.parse_exact_nowh_nonl(TokenKind::KeywordStruct)?;
+        let name = self.parse_ident_nowh_nonl()?;
+        self.parse_exact_nowh_nonl(TokenKind::LeftCurly)?;
+        let mut fields = Vec::new();
+        loop {
+            let next_token = self.parse_ident_nowh_nonl();
+            if next_token.is_err() { self.tokens.reverse(); break }
+            let field_name = next_token.unwrap();
+            self.parse_exact_nowh_nonl(TokenKind::Colon)?;
+            let type_ = self.parse_type()?;
+            fields.push(StructField {
+                name: field_name,
+                type_
+            });
+
+            let maybe_comma = self.parse_exact_nowh_nonl(TokenKind::Comma);
+            if maybe_comma.is_err() { self.tokens.reverse(); break }
+        }
+        self.parse_exact_nowh_nonl(TokenKind::RightCurly)?;
+
+        return Ok(
+            StructDecl {
+                name,
+                fields
+            }
+        )
     }
 
     fn parse_mod(&mut self) -> Result<ModeDecl, String> {
@@ -326,6 +400,8 @@ impl<'a> AstParser<'a> {
             TokenKind::OpEqual => { operator = Operator::Equal }
             TokenKind::OpMinus => { operator = Operator::Minus }
             TokenKind::OpPlus => { operator = Operator::Add }
+            TokenKind::OpDivide => { operator = Operator::Divide }
+            TokenKind::OpMultiply => { operator = Operator::Multiply }
             _ => { return Err(format!("Err expr, {:?}", next_token.span)) }
         }
 

@@ -49,6 +49,8 @@ pub enum TokenKind {
     OpEqual,
     OpMinus,
     OpPlus,
+    OpDivide,
+    OpMultiply,
     
     ExclamationMark,
 
@@ -61,7 +63,10 @@ pub enum TokenKind {
     RightCurly,
 
 
-    WhiteSpace
+    WhiteSpace,
+
+    CommentLine(String),
+    CommentMultiLine(String)
 }
 
 impl TokenKind {
@@ -138,6 +143,16 @@ impl<'a> CharIterator<'a> {
 
     }
 
+    pub fn next_no_take(&mut self) -> Option<CharInfo> {
+        let next = self.next();
+        self.reverse();
+        return next
+    }
+
+    pub fn take(&mut self) {
+        self.next().unwrap();
+    }
+
     pub fn reverse(&mut self) {
         self.reverse = true;
     }
@@ -203,6 +218,26 @@ impl<'a> Lexer<'a> {
             else if c == ']' { self.tokens.push(Token { span, kind: TokenKind::RightSquare }); continue }
             else if c == '{' { self.tokens.push(Token { span, kind: TokenKind::LeftCurly }); continue }
             else if c == '}' { self.tokens.push(Token { span, kind: TokenKind::RightCurly }); continue }
+            else if c == '*' { self.tokens.push(Token { span, kind: TokenKind::OpMultiply }); continue }
+            else if c == '/' {
+                let next_token = self.chars_iterator.next_no_take();
+                if next_token.is_some() {
+                    if next_token.as_ref().unwrap().c == '/' {
+                        self.chars_iterator.take();
+                        self.parse_line_comment();
+                        continue
+                    }
+
+                    if next_token.as_ref().unwrap().c == '*' {
+                        self.chars_iterator.take();
+                        self.parse_multiline_comment();
+                        continue
+                    }
+                }
+
+                self.tokens.push(Token { span, kind: TokenKind::OpDivide });
+                continue
+            }
             
             else if c == '=' { self.tokens.push(Token { span, kind: TokenKind::OpEqual }); continue }
             else if c == '+' { self.tokens.push(Token { span, kind: TokenKind::OpPlus }); continue }
@@ -308,5 +343,44 @@ impl<'a> Lexer<'a> {
                 break
             }
         }
+    }
+
+    fn parse_line_comment(&mut self) {
+        let span = self.chars_iterator.char_info().span;
+        let mut comment = String::new();
+        loop {
+            let c_option = self.chars_iterator.next();
+            if c_option.is_none() { break }
+            let c = c_option.unwrap().c;
+
+            if c != '\n' {
+                comment.push(c);
+                continue
+            } else {
+                self.tokens.push(Token { span, kind: TokenKind::CommentLine(comment) });
+                break
+            }
+        }
+    }
+
+    fn parse_multiline_comment(&mut self) {
+        let span = self.chars_iterator.char_info().span;
+        let mut comment = String::new();
+        loop {
+            let c_option = self.chars_iterator.next();
+            if c_option.is_none() { break }
+            let c = c_option.unwrap().c;
+
+            if c == '*' {
+                if self.chars_iterator.next_no_take().unwrap().c == '/' {
+                    self.chars_iterator.take();
+                    self.tokens.push(Token { span, kind: TokenKind::CommentMultiLine(comment) });
+                    return;
+                }
+            }
+            comment.push(c);
+        }
+
+        panic!()
     }
 }
