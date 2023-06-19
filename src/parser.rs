@@ -73,6 +73,7 @@ pub enum Operator {
     Minus,
     Multiply,
     Divide,
+    Dot,
 }
 
 #[derive(Debug)]
@@ -310,8 +311,8 @@ impl<'a> AstParser<'a> {
                 let lit;
                 match f {
                     crate::lexer::Float::F32(f) => { lit = Lit::Float(f)}
-                    crate::lexer::Float::F64(f) => { lit = Lit::Float(f as f32)}
-                    crate::lexer::Float::Float(f) => { lit = Lit::Float(f as f32)}
+                    //crate::lexer::Float::F64(f) => { lit = Lit::Float(f as f32)}
+                    //crate::lexer::Float::Float(f) => { lit = Lit::Float(f as f32)}
                 }
                 expr = self.parse_expr_with_lhs(Expr::Literal(lit))?
             }
@@ -319,8 +320,8 @@ impl<'a> AstParser<'a> {
                 let lit;
                 match i {
                     crate::lexer::Integer::I32(i) => { lit = Lit::Int(i)}
-                    crate::lexer::Integer::U32(i) => { lit = Lit::Int(i as i32)}
-                    crate::lexer::Integer::Int(i) => { lit = Lit::Int(i as i32)}
+                    //crate::lexer::Integer::U32(i) => { lit = Lit::Int(i as i32)}
+                    //crate::lexer::Integer::Int(i) => { lit = Lit::Int(i as i32)}
                 }
                 expr = self.parse_expr_with_lhs(Expr::Literal(lit))?
             }
@@ -353,7 +354,8 @@ impl<'a> AstParser<'a> {
         }
         if next_token.kind == TokenKind::LeftParen {
             let args = self.parse_args_fncall()?;
-            return Ok( Expr::FnCall( FnCall { ident: Box::new(lhs), arguments: args } ) )
+            let lhs = Expr::FnCall( FnCall { ident: Box::new(lhs), arguments: args } );
+            return self.parse_expr_with_lhs(lhs);
         }
 
         panic!("{:?}, {:?}", next_token, lhs);
@@ -402,7 +404,8 @@ impl<'a> AstParser<'a> {
             TokenKind::OpPlus => { operator = Operator::Add }
             TokenKind::OpDivide => { operator = Operator::Divide }
             TokenKind::OpMultiply => { operator = Operator::Multiply }
-            _ => { return Err(format!("Err expr, {:?}", next_token.span)) }
+            TokenKind::Dot => { operator = Operator::Dot }
+            _ => { return Err(format!("Err expr_operation, {:?}", next_token)) }
         }
 
         let rhs = self.parse_expr()?;

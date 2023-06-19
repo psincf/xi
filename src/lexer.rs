@@ -1,5 +1,6 @@
 use std::str::Chars;
 
+#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub struct Span {
     line: i32,
@@ -14,16 +15,16 @@ pub struct Token {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Integer {
-    Int(isize),
+    //Int(isize),
     I32(i32),
-    U32(u32)
+    //U32(u32)
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Float {
-    Float(f64),
+    //Float(f64),
     F32(f32),
-    F64(f64)
+    //F64(f64)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -51,8 +52,7 @@ pub enum TokenKind {
     OpPlus,
     OpDivide,
     OpMultiply,
-    
-    ExclamationMark,
+    Bang,
 
 
     LeftParen,
@@ -72,7 +72,7 @@ pub enum TokenKind {
 impl TokenKind {
     pub fn is_operator(&self) -> bool {
         match self {
-            Self::OpEqual | Self::OpMinus | Self::OpPlus => { return true }
+            Self::OpEqual | Self::OpMinus | Self::OpPlus | Self::OpMultiply | Self::OpDivide | Self::Dot => { return true }
             _ => { return false }
         }
     }
@@ -160,7 +160,6 @@ impl<'a> CharIterator<'a> {
 
 pub struct Lexer<'a> {
     pub tokens: Vec<Token>,
-    source: &'a String,
     chars_iterator: CharIterator<'a>,
 }
 
@@ -169,7 +168,6 @@ impl<'a> Lexer<'a> {
         let chars_iterator = CharIterator::new(source);
         Self {
             tokens: Vec::new(),
-            source,
             chars_iterator
         }
     }
@@ -208,7 +206,7 @@ impl<'a> Lexer<'a> {
             }
             else if c == ':' { self.tokens.push(Token { span, kind: TokenKind::Colon }); continue }
             else if c == ';' { self.tokens.push(Token { span, kind: TokenKind::Semicolon }); continue }
-            else if c == '!' { self.tokens.push(Token { span, kind: TokenKind::ExclamationMark }); continue }
+            else if c == '!' { self.tokens.push(Token { span, kind: TokenKind::Bang }); continue }
             else if c == '.' { self.tokens.push(Token { span, kind: TokenKind::Dot }); continue }
             else if c == ',' { self.tokens.push(Token { span, kind: TokenKind::Comma }); continue }
 

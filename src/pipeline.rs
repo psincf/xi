@@ -3,7 +3,9 @@ use std::io::Write;
 
 use crate::lexer::Token;
 use super::lexer::Lexer;
+use super::parser::Ast;
 use super::parser::AstParser;
+use super::sema::SemanticAnalizer;
 
 use super::utils;
 
@@ -15,6 +17,7 @@ pub struct PipelineOptions {
 
 pub struct Pipeline {
     lex_tokens: Vec<Token>,
+    ast: Option<Ast>,
     file_path: String,
     options: PipelineOptions,
 }
@@ -23,6 +26,7 @@ impl Pipeline {
     pub fn new(file_path: String, options: PipelineOptions) -> Self {
         Self {
             lex_tokens: Vec::new(),
+            ast: None,
             file_path,
             options
         }
@@ -32,6 +36,7 @@ impl Pipeline {
         let file_string = self.get_file_string();
         self.lex(&file_string);
         self.parse();
+        self.sema();
     }
 
 
@@ -73,6 +78,17 @@ impl Pipeline {
 
             write!(&mut string, "{:#?}", &parser.ast).unwrap();
             file.write(&string).unwrap();
+        }
+
+        self.ast = Some(parser.ast);
+    }
+
+    fn sema(&mut self) {
+        let mut sema = SemanticAnalizer::new(self.ast.as_ref().unwrap());
+        sema.sema();
+
+        if !sema.err.is_empty() {
+            panic!("{:#?}", sema.err);
         }
     }
 
