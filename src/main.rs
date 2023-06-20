@@ -18,6 +18,8 @@ fn main() {
 
         if arg_strip == "write_tokens" { pipeline_options.write_tokens = true; }
         else if arg_strip == "write_ast" { pipeline_options.write_ast = true; }
+        else if arg_strip == "write_sym_table" { pipeline_options.write_sym_table = true; }
+        else if arg_strip == "write_types_sema" { pipeline_options.write_types_sema = true; }
         else { panic!("argument \"{arg}\" not recognized") }
     }
 

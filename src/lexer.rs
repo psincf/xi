@@ -47,11 +47,11 @@ pub enum TokenKind {
 
     NewLine,
 
-    OpEqual,
-    OpMinus,
-    OpPlus,
-    OpDivide,
-    OpMultiply,
+    Equal,
+    Minus,
+    Plus,
+    Divide,
+    Multiply,
     Bang,
 
 
@@ -72,7 +72,7 @@ pub enum TokenKind {
 impl TokenKind {
     pub fn is_operator(&self) -> bool {
         match self {
-            Self::OpEqual | Self::OpMinus | Self::OpPlus | Self::OpMultiply | Self::OpDivide | Self::Dot => { return true }
+            Self::Equal | Self::Minus | Self::Plus | Self::Multiply | Self::Divide | Self::Dot => { return true }
             _ => { return false }
         }
     }
@@ -216,7 +216,7 @@ impl<'a> Lexer<'a> {
             else if c == ']' { self.tokens.push(Token { span, kind: TokenKind::RightSquare }); continue }
             else if c == '{' { self.tokens.push(Token { span, kind: TokenKind::LeftCurly }); continue }
             else if c == '}' { self.tokens.push(Token { span, kind: TokenKind::RightCurly }); continue }
-            else if c == '*' { self.tokens.push(Token { span, kind: TokenKind::OpMultiply }); continue }
+            else if c == '*' { self.tokens.push(Token { span, kind: TokenKind::Multiply }); continue }
             else if c == '/' {
                 let next_token = self.chars_iterator.next_no_take();
                 if next_token.is_some() {
@@ -233,13 +233,13 @@ impl<'a> Lexer<'a> {
                     }
                 }
 
-                self.tokens.push(Token { span, kind: TokenKind::OpDivide });
+                self.tokens.push(Token { span, kind: TokenKind::Divide });
                 continue
             }
             
-            else if c == '=' { self.tokens.push(Token { span, kind: TokenKind::OpEqual }); continue }
-            else if c == '+' { self.tokens.push(Token { span, kind: TokenKind::OpPlus }); continue }
-            else if c == '-' { self.tokens.push(Token { span, kind: TokenKind::OpMinus }); continue }
+            else if c == '=' { self.tokens.push(Token { span, kind: TokenKind::Equal }); continue }
+            else if c == '+' { self.tokens.push(Token { span, kind: TokenKind::Plus }); continue }
+            else if c == '-' { self.tokens.push(Token { span, kind: TokenKind::Minus }); continue }
 
 
             panic!("char inconpatible: {:?}", c_info);

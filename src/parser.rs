@@ -8,20 +8,20 @@ pub struct Ast {
 
 #[derive(Debug)]
 pub struct StructField {
-    name: String,
-    type_: Type,
+    pub name: String,
+    pub type_: Type,
 }
 
 #[derive(Debug)]
 pub struct StructDecl {
-    name: String,
-    fields: Vec<StructField>
+    pub name: String,
+    pub fields: Vec<StructField>
 }
 
 #[derive(Debug)]
 pub struct EnumDecl {
-    name: String,
-    variants: Vec<String>,
+    pub name: String,
+    pub variants: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -32,8 +32,8 @@ pub enum Type {
 
 #[derive(Debug)]
 pub struct Param {
-    name: String,
-    type_: Type,
+    pub name: String,
+    pub type_: Type,
 }
 
 #[derive(Debug)]
@@ -382,7 +382,7 @@ impl<'a> AstParser<'a> {
         self.parse_exact_nowh_nonl(TokenKind::KeywordLet)?;
         let ident = self.parse_ident_nowh_nonl()?;
         
-        self.parse_exact_nowh_nonl(TokenKind::OpEqual)?;
+        self.parse_exact_nowh_nonl(TokenKind::Equal)?;
         let expr = self.parse_expr()?;
         self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
 
@@ -399,11 +399,11 @@ impl<'a> AstParser<'a> {
         let next_token = self.tokens.next_nowh_nonl().unwrap();
         let operator;
         match next_token.kind {
-            TokenKind::OpEqual => { operator = Operator::Equal }
-            TokenKind::OpMinus => { operator = Operator::Minus }
-            TokenKind::OpPlus => { operator = Operator::Add }
-            TokenKind::OpDivide => { operator = Operator::Divide }
-            TokenKind::OpMultiply => { operator = Operator::Multiply }
+            TokenKind::Equal => { operator = Operator::Equal }
+            TokenKind::Minus => { operator = Operator::Minus }
+            TokenKind::Plus => { operator = Operator::Add }
+            TokenKind::Divide => { operator = Operator::Divide }
+            TokenKind::Multiply => { operator = Operator::Multiply }
             TokenKind::Dot => { operator = Operator::Dot }
             _ => { return Err(format!("Err expr_operation, {:?}", next_token)) }
         }

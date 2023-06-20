@@ -13,6 +13,8 @@ use super::utils;
 pub struct PipelineOptions {
     pub write_tokens: bool,
     pub write_ast: bool,
+    pub write_sym_table: bool,
+    pub write_types_sema: bool,
 }
 
 pub struct Pipeline {
@@ -54,13 +56,7 @@ impl Pipeline {
         let tokens = lexer.lex();
 
         if self.options.write_tokens {
-            let _dir = self.read_or_create_output_dir();
-            let mut file = std::fs::File::create("xi_output/tokens.txt").unwrap();
-            let mut string = Vec::new();
-
-            let list_tokens = utils::FmtToken(&tokens);
-            write!(&mut string, "{}", list_tokens).unwrap();
-            file.write(&string).unwrap();
+            self.write_debug_to_file(utils::FmtToken(&tokens), "xi_output/tokens.txt");
         }
 
         self.lex_tokens = lexer.tokens;
@@ -72,12 +68,7 @@ impl Pipeline {
         if result.is_err() { panic!("{:?}", result); }
 
         if self.options.write_ast {
-            let _dir = self.read_or_create_output_dir();
-            let mut file = std::fs::File::create("xi_output/ast.txt").unwrap();
-            let mut string = Vec::new();
-
-            write!(&mut string, "{:#?}", &parser.ast).unwrap();
-            file.write(&string).unwrap();
+            self.write_debug_to_file(&parser.ast, "xi_output/ast.txt");
         }
 
         self.ast = Some(parser.ast);
@@ -89,6 +80,14 @@ impl Pipeline {
 
         if !sema.err.is_empty() {
             panic!("{:#?}", sema.err);
+        }
+
+        if self.options.write_sym_table {
+            self.write_debug_to_file(&sema.sym_tables, "xi_output/sym_table.txt");
+        }
+
+        if self.options.write_types_sema {
+            self.write_debug_to_file(&sema.types, "xi_output/types_sema.txt");
         }
     }
 
@@ -107,5 +106,14 @@ impl Pipeline {
 
         panic!("Bug in pipeline")
 
+    }
+
+    fn write_debug_to_file(&self, to_write: impl std::fmt::Debug, path: impl Into<String>) {
+        let _dir = self.read_or_create_output_dir();
+        let mut file = std::fs::File::create(path.into()).unwrap();
+        let mut string = Vec::new();
+
+        write!(&mut string, "{:#?}", to_write).unwrap();
+        file.write(&string).unwrap();
     }
 }
