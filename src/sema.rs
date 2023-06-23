@@ -128,11 +128,11 @@ impl<'a> SemanticAnalizer<'a> {
     }
 
     pub fn sema(&mut self) {
-        self.validate_no_expr_in_top_file();
-        self.insert_types_all_ast();
+        self.sema_validate_no_expr_in_top_file();
+        self.sema_insert_types_all_ast();
     }
 
-    fn validate_no_expr_in_top_file(&mut self) {
+    fn sema_validate_no_expr_in_top_file(&mut self) {
         for node in &self.ast.inner {
             match node {
                 Node::None => {},
@@ -147,16 +147,15 @@ impl<'a> SemanticAnalizer<'a> {
         }
     }
 
-    fn insert_types_all_ast(&mut self) {
+    fn sema_insert_types_all_ast(&mut self) {
         let sym_table = SymTable::new(0, Vec::new());
         self.sym_tables.push(sym_table);
         for node in &self.ast.inner {
-            self.insert_types("package".to_string(), 0, node);
+            self.sema_insert_types("package".to_string(), 0, node);
         }
     }
 
-    fn insert_types(&mut self, actual_path: String, sym_table_id: SymtableId, node: &Node) {
-        let sym_table = &mut self.sym_tables[sym_table_id];
+    fn sema_insert_types(&mut self, actual_path: String, sym_table_id: SymtableId, node: &Node) {
         match node {
             Node::Statement(stmt) => {
                 match stmt {
@@ -173,29 +172,15 @@ impl<'a> SemanticAnalizer<'a> {
                             path: actual_path.clone(),
                             kind: Tykind::Enum(name.clone(), variants)
                         };
-
-                        if sym_table.symbols.get(name).is_some() {
-                            let existing_ty_id = sym_table.symbols.get(name).unwrap();
-                            let existing_ty = &self.types[*existing_ty_id];
-
-                            self.err.push(format!("{} already exist in {}", name, existing_ty.path));
-                            panic!()
-
-                        } else {
-                            let ty_id = self.types.len();
-                            self.types.push(ty);
-                            let result = sym_table.insert_symbol(name.clone(), ty_id);
-                            if let Err(err) = result {
-                                self.err.push(err);
-                            }
-                        }
+                        
+                        _ = self.insert_type(name, ty, sym_table_id);
                     }
                     Statement::StructDecl(struct_decl) => {
                         let name = &struct_decl.name;
                         let fields: Vec<StructField> = struct_decl.fields.iter().map(|f| {
                             let ty_kind = match &f.type_ {
                                 parser::Type::Ident(s) => { Tykind::Name(s.clone()) },
-                                parser::Type::None => { panic!() }
+                                parser::Type::None | parser::Type::Inferred => { panic!() }
                             };
 
                             let ty = Ty {
@@ -213,14 +198,8 @@ impl<'a> SemanticAnalizer<'a> {
                             path: actual_path.clone(),
                             kind: Tykind::Struct(name.clone(), fields)
                         };
-                        
-                        let ty_id = self.types.len();
-                        self.types.push(ty);
-                        let result = sym_table.insert_symbol(name.clone(), ty_id);
-                        if let Err(err) = result {
-                            self.err.push(err);
-                        }
 
+                        _ = self.insert_type(name, ty, sym_table_id);
                     }
                     _ => { //TODO
                     }
@@ -228,6 +207,29 @@ impl<'a> SemanticAnalizer<'a> {
             },
             Node::Expr(_) => unreachable!(),
             _ => {  }
+        }
+    }
+
+    fn insert_type(&mut self, name: &String, ty: Ty, sym_table_id: SymtableId) -> Result<usize, ()> {
+        let sym_table = &mut self.sym_tables[sym_table_id];
+        if sym_table.symbols.get(name).is_some() {
+            let existing_ty_id = sym_table.symbols.get(name).unwrap();
+            let existing_ty = &self.types[*existing_ty_id];
+
+            self.err.push(format!("{} already exist in {}", name, existing_ty.path));
+
+            return Err(())
+        } else {
+            let ty_id = self.types.len();
+            self.types.push(ty);
+            let result = sym_table.insert_symbol(name.clone(), ty_id);
+            if let Err(err) = result {
+                self.err.push(err);
+
+                return Err(())
+            }
+
+            return Ok(ty_id)
         }
     }
 }

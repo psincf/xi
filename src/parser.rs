@@ -27,6 +27,7 @@ pub struct EnumDecl {
 #[derive(Debug)]
 pub enum Type {
     Ident(String),
+    Inferred,
     None
 }
 
@@ -48,6 +49,7 @@ pub struct FnDecl {
 pub struct VarDecl {
     mutable: bool,
     ident: String,
+    ty: Type,
     expr: Expr,
 }
 
@@ -386,8 +388,11 @@ impl<'a> AstParser<'a> {
         let expr = self.parse_expr()?;
         self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
 
+        let ty = Type::Inferred;
+
         let decl = VarDecl {
             mutable: true,
+            ty,
             ident,
             expr
         };
