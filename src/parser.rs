@@ -1,51 +1,51 @@
 use super::lexer::Token;
 use super::lexer::TokenKind;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Ast {
     pub inner: Vec<Node>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructField {
     pub name: String,
     pub type_: Type,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct StructDecl {
     pub name: String,
     pub fields: Vec<StructField>
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<String>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Type {
     Ident(String),
     Inferred,
     None
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Param {
     pub name: String,
     pub type_: Type,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FnDecl {
-    name: String,
-    paramaters: Vec<Param>,
-    return_type: Type,
-    body: Vec<Node>
+    pub name: String,
+    pub paramaters: Vec<Param>,
+    pub return_type: Type,
+    pub body: Vec<Node>
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VarDecl {
     mutable: bool,
     ident: String,
@@ -53,12 +53,12 @@ pub struct VarDecl {
     expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ModeDecl {
     name: String
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Statement {
     StructDecl(StructDecl),
     EnumDecl(EnumDecl),
@@ -68,7 +68,7 @@ pub enum Statement {
     Expr(Expr)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Operator {
     Equal,
     Add,
@@ -78,27 +78,27 @@ pub enum Operator {
     Dot,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Operation {
     lhs: Box<Expr>,
     rhs: Box<Expr>,
     operator: Operator
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Lit {
     Int(i32),
     Float(f32),
     String(String)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct FnCall {
     ident: Box<Expr>,
     arguments: Vec<Expr>,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Expr {
     Ident(String),
     Literal(Lit),
@@ -107,7 +107,7 @@ pub enum Expr {
     Paren(Box<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum Node {
     Expr(Expr),
     Statement(Statement),

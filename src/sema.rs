@@ -1,9 +1,6 @@
 use std::collections::HashMap;
 
 use super::parser;
-use super::parser::Ast;
-use super::parser::Node;
-use super::parser::Statement;
 
 #[derive(Clone, Debug)]
 pub struct Ty {
@@ -13,9 +10,38 @@ pub struct Ty {
 
 #[derive(Clone, Debug)]
 pub enum Tykind {
-    Struct(String, Vec<StructField>),
-    Enum(String, Vec<EnumVariant>),
-    Name(String)
+    Struct(Box<StructTy>),
+    Enum(Box<EnumTy>),
+    Fn(Box<FnTy>),
+    Id(TyId),
+    Name(String),
+    None
+}
+
+#[derive(Clone, Debug)]
+pub struct Param {
+    pub name: String,
+    pub ty: Ty,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructTy {
+    pub name: String,
+    pub fields: Vec<StructField>
+}
+
+#[derive(Clone, Debug)]
+pub struct EnumTy {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+}
+
+#[derive(Clone, Debug)]
+pub struct FnTy {
+    name: String,
+    paramaters: Vec<Param>,
+    return_type: Ty,
+    body: &'static Vec<parser::Node>
 }
 
 #[derive(Clone, Debug)]
@@ -111,14 +137,14 @@ impl SymTable {
 }
 
 pub struct SemanticAnalizer<'a> {
-    ast: &'a Ast,
+    ast: &'a parser::Ast,
     pub types: Vec<Ty>,
     pub sym_tables: Vec<SymTable>,
     pub err: Vec<String>
 }
 
 impl<'a> SemanticAnalizer<'a> {
-    pub fn new(ast: &'a Ast) -> Self {
+    pub fn new(ast: &'a parser::Ast) -> Self {
         Self {
             ast,
             types: Vec::new(),
@@ -135,11 +161,11 @@ impl<'a> SemanticAnalizer<'a> {
     fn sema_validate_no_expr_in_top_file(&mut self) {
         for node in &self.ast.inner {
             match node {
-                Node::None => {},
-                Node::Expr(_) => { self.err.push(format!("No expression allowed on file level")) },
-                Node::Statement(stmt) => {
+                parser::Node::None => {},
+                parser::Node::Expr(_) => { self.err.push(format!("No expression allowed on file level")) },
+                parser::Node::Statement(stmt) => {
                     match stmt {
-                        Statement::Expr(_) => { self.err.push(format!("No expression allowed on file level")) }
+                        parser::Statement::Expr(_) => { self.err.push(format!("No expression allowed on file level")) }
                         _ => {  }
                     }
                 },
@@ -155,11 +181,11 @@ impl<'a> SemanticAnalizer<'a> {
         }
     }
 
-    fn sema_insert_types(&mut self, actual_path: String, sym_table_id: SymtableId, node: &Node) {
+    fn sema_insert_types(&mut self, actual_path: String, sym_table_id: SymtableId, node: &parser::Node) {
         match node {
-            Node::Statement(stmt) => {
+            parser::Node::Statement(stmt) => {
                 match stmt {
-                    Statement::EnumDecl(enum_decl) => {
+                    parser::Statement::EnumDecl(enum_decl) => {
                         let name = &enum_decl.name;
                         let variants: Vec<EnumVariant> = enum_decl.variants.iter().map(|s| {
                             EnumVariant {
@@ -170,12 +196,12 @@ impl<'a> SemanticAnalizer<'a> {
 
                         let ty = Ty {
                             path: actual_path.clone(),
-                            kind: Tykind::Enum(name.clone(), variants)
+                            kind: Tykind::Enum(Box::new(EnumTy{ name: name.clone(), variants: variants }))
                         };
                         
                         _ = self.insert_type(name, ty, sym_table_id);
                     }
-                    Statement::StructDecl(struct_decl) => {
+                    parser::Statement::StructDecl(struct_decl) => {
                         let name = &struct_decl.name;
                         let fields: Vec<StructField> = struct_decl.fields.iter().map(|f| {
                             let ty_kind = match &f.type_ {
@@ -196,16 +222,54 @@ impl<'a> SemanticAnalizer<'a> {
                         
                         let ty = Ty {
                             path: actual_path.clone(),
-                            kind: Tykind::Struct(name.clone(), fields)
+                            kind: Tykind::Struct(Box::new(StructTy { name: name.clone(), fields: fields }))
                         };
 
                         _ = self.insert_type(name, ty, sym_table_id);
+                    }
+                    parser::Statement::FnDecl(fn_decl) => {
+                        let name = &fn_decl.name;
+                        let params: Vec<Param> = fn_decl.paramaters.iter().map(|p| {
+                            let ty: String = match &p.type_{
+                                parser::Type::Ident(id) => id.clone(),
+                                _ => unreachable!()
+                            };
+                            Param {
+                                name: p.name.clone(),
+                                ty: Ty {
+                                    path: String::new(),
+                                    kind: Tykind::Name(ty)
+                                }
+                            }
+                        }).collect();
+
+                        let return_type = match &fn_decl.return_type {
+                            parser::Type::Ident(id) => Tykind::Name(id.clone()),
+                            parser::Type::None => Tykind::None,
+                            _ => unreachable!()
+                        };
+
+                        let body = &fn_decl.body;
+
+                        let fn_ty = FnTy {
+                            name: name.clone(),
+                            paramaters: params,
+                            return_type: Ty { path: String::new(), kind: return_type },
+                            body: unsafe { std::mem::transmute(body) }
+                        };
+
+                        let ty = Ty {
+                            path: actual_path.clone(),
+                            kind: Tykind::Fn(Box::new(fn_ty))
+                        };
+
+                        _ = self.insert_type(name, ty, sym_table_id)
                     }
                     _ => { //TODO
                     }
                 }
             },
-            Node::Expr(_) => unreachable!(),
+            parser::Node::Expr(_) => unreachable!(),
             _ => {  }
         }
     }
