@@ -47,10 +47,10 @@ pub struct FnDecl {
 
 #[derive(Clone, Debug)]
 pub struct VarDecl {
-    mutable: bool,
-    ident: String,
-    ty: Type,
-    expr: Expr,
+    pub mutable: bool,
+    pub ident: String,
+    pub ty: Type,
+    pub expr: Expr,
 }
 
 #[derive(Clone, Debug)]

@@ -2,6 +2,27 @@ use std::collections::HashMap;
 
 use super::parser;
 
+pub struct Ir {
+    pub inner: Vec<Node>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Node {
+    Expr(Expr),
+    Statement(Statement),
+    None
+}
+
+#[derive(Clone, Debug)]
+pub enum Statement {
+    StructDecl(TyId),
+    EnumDecl(TyId),
+    FnDecl(TyId),
+    VarDecl(SymId, Expr),
+    //ModDecl(ModeDecl),
+    Expr(Expr)
+}
+
 #[derive(Clone, Debug)]
 pub enum Sym {
     Ty(Ty),
@@ -10,7 +31,8 @@ pub enum Sym {
 
 #[derive(Clone, Debug)]
 pub struct Value {
-    expr: Expr,
+    ident: String,
+    mutable: bool,
     ty: Ty,
 }
 
@@ -76,6 +98,7 @@ pub enum Tykind {
     Fn(Box<FnTy>),
     Id(TyId),
     Name(String),
+    Inferred,
     None
 }
 
@@ -307,6 +330,19 @@ impl<'a> SemanticAnalizer<'a> {
                         for node in &fn_decl.body {
                             self.sema_insert_symbols(actual_path.clone() + "/#FN/" + &fn_decl.name, symtable_id_fn, node)
                         }
+                    }
+                    parser::Statement::VarDecl(var_decl) => {
+                        let ident = &var_decl.ident;
+                        let mutable = var_decl.mutable;
+                        let ty = match &var_decl.ty {
+                            parser::Type::Ident(i) => { Ty { kind: Tykind::Name(i.clone()) } }
+                            parser::Type::Inferred => { Ty { kind: Tykind::Inferred } }
+                            _ => panic!("{:?}", var_decl)
+                        };
+
+                        let value = Value { ident: ident.clone(), mutable, ty };
+                        
+                        _ = self.insert_value(ident, value, sym_table_id);
                     }
                     _ => { //TODO
                     }
