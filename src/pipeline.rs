@@ -15,6 +15,7 @@ pub struct PipelineOptions {
     pub write_ast: bool,
     pub write_sym_table: bool,
     pub write_types_sema: bool,
+    pub write_sym_sema: bool,
 }
 
 pub struct Pipeline {
@@ -89,6 +90,10 @@ impl Pipeline {
         if self.options.write_types_sema {
             self.write_debug_to_file(&sema.types, "xi_output/types_sema.txt");
         }
+
+        if self.options.write_sym_sema {
+            self.write_debug_to_file(&sema.symbols, "xi_output/sym_sema.txt");
+        }
     }
 
     fn read_or_create_output_dir(&self) -> std::fs::DirEntry {
@@ -109,7 +114,7 @@ impl Pipeline {
     }
 
     fn write_debug_to_file(&self, to_write: impl std::fmt::Debug, path: impl Into<String>) {
-        let _dir = self.read_or_create_output_dir();
+        let _dir: std::fs::DirEntry = self.read_or_create_output_dir();
         let mut file = std::fs::File::create(path.into()).unwrap();
         let mut string = Vec::new();
 

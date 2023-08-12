@@ -3,9 +3,30 @@ use std::collections::HashMap;
 use super::parser;
 
 #[derive(Clone, Debug)]
+pub enum Sym {
+    Ty(Ty),
+    Value(Value)
+}
+
+#[derive(Clone, Debug)]
+pub struct Value {
+    ty: Ty,
+}
+
+#[derive(Clone, Debug)]
 pub struct Ty {
-    path: String,
     kind: Tykind
+}
+
+impl Ty {
+    pub fn get_path(&self) -> &str {
+        match &self.kind {
+            Tykind::Struct(s) => return &s.path,
+            Tykind::Enum(e) => return &e.path,
+            Tykind::Fn(f) => return &f.path,
+            _ => return ""
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -26,18 +47,21 @@ pub struct Param {
 
 #[derive(Clone, Debug)]
 pub struct StructTy {
+    pub path: String,
     pub name: String,
     pub fields: Vec<StructField>
 }
 
 #[derive(Clone, Debug)]
 pub struct EnumTy {
+    pub path: String,
     pub name: String,
     pub variants: Vec<EnumVariant>,
 }
 
 #[derive(Clone, Debug)]
 pub struct FnTy {
+    pub path: String,
     name: String,
     paramaters: Vec<Param>,
     return_type: Ty,
@@ -57,13 +81,14 @@ pub struct EnumVariant {
 }
 
 type TyId = usize;
+type SymId = usize;
 type SymtableId = usize;
 
 #[derive(Debug, Default)]
 pub struct SymTable {
     id: SymtableId,
     prec: Vec<SymtableId>,
-    symbols: HashMap<String, TyId>,
+    symbols: HashMap<String, SymId>,
     layers: HashMap<String, SymtableId>,
 }
 
@@ -139,6 +164,7 @@ impl SymTable {
 pub struct SemanticAnalizer<'a> {
     ast: &'a parser::Ast,
     pub types: Vec<Ty>,
+    pub symbols: Vec<Sym>,
     pub sym_tables: Vec<SymTable>,
     pub err: Vec<String>
 }
@@ -148,6 +174,7 @@ impl<'a> SemanticAnalizer<'a> {
         Self {
             ast,
             types: Vec::new(),
+            symbols: Vec::new(),
             sym_tables: Vec::new(),
             err: Vec::new()
         }
@@ -195,8 +222,7 @@ impl<'a> SemanticAnalizer<'a> {
                         }).collect();
 
                         let ty = Ty {
-                            path: actual_path.clone(),
-                            kind: Tykind::Enum(Box::new(EnumTy{ name: name.clone(), variants: variants }))
+                            kind: Tykind::Enum(Box::new(EnumTy{ path: actual_path.clone(), name: name.clone(), variants: variants }))
                         };
                         
                         _ = self.insert_type(name, ty, sym_table_id);
@@ -210,7 +236,6 @@ impl<'a> SemanticAnalizer<'a> {
                             };
 
                             let ty = Ty {
-                                path: actual_path.clone(),
                                 kind: ty_kind,
                             };
 
@@ -221,8 +246,7 @@ impl<'a> SemanticAnalizer<'a> {
                         }).collect();
                         
                         let ty = Ty {
-                            path: actual_path.clone(),
-                            kind: Tykind::Struct(Box::new(StructTy { name: name.clone(), fields: fields }))
+                            kind: Tykind::Struct(Box::new(StructTy { path: actual_path.clone(), name: name.clone(), fields: fields }))
                         };
 
                         _ = self.insert_type(name, ty, sym_table_id);
@@ -237,7 +261,6 @@ impl<'a> SemanticAnalizer<'a> {
                             Param {
                                 name: p.name.clone(),
                                 ty: Ty {
-                                    path: String::new(),
                                     kind: Tykind::Name(ty)
                                 }
                             }
@@ -252,14 +275,14 @@ impl<'a> SemanticAnalizer<'a> {
                         let body = &fn_decl.body;
 
                         let fn_ty = FnTy {
+                            path: actual_path.clone(),
                             name: name.clone(),
                             paramaters: params,
-                            return_type: Ty { path: String::new(), kind: return_type },
+                            return_type: Ty { kind: return_type },
                             body: unsafe { std::mem::transmute(body) }
                         };
 
                         let ty = Ty {
-                            path: actual_path.clone(),
                             kind: Tykind::Fn(Box::new(fn_ty))
                         };
 
@@ -274,26 +297,43 @@ impl<'a> SemanticAnalizer<'a> {
         }
     }
 
-    fn insert_type(&mut self, name: &String, ty: Ty, sym_table_id: SymtableId) -> Result<usize, ()> {
+    fn insert_sym(&mut self, name: &String, sym: Sym, sym_table_id: SymtableId) -> Result<usize, ()> {
         let sym_table = &mut self.sym_tables[sym_table_id];
         if sym_table.symbols.get(name).is_some() {
             let existing_ty_id = sym_table.symbols.get(name).unwrap();
             let existing_ty = &self.types[*existing_ty_id];
 
-            self.err.push(format!("{} already exist in {}", name, existing_ty.path));
+            self.err.push(format!("{} already exist in {}", name, existing_ty.get_path()));
 
             return Err(())
         } else {
-            let ty_id = self.types.len();
-            self.types.push(ty);
-            let result = sym_table.insert_symbol(name.clone(), ty_id);
+            let sym_id = self.symbols.len();
+            self.symbols.push(sym);
+
+            let result = sym_table.insert_symbol(name.clone(), sym_id);
             if let Err(err) = result {
                 self.err.push(err);
 
                 return Err(())
             }
 
-            return Ok(ty_id)
+            return Ok(sym_id)
         }
+
+    }
+
+    fn insert_value(&mut self, name: &String, value: Value, sym_table_id: SymtableId) -> Result<usize, ()> {
+        let sym = Sym::Value(value);
+
+        self.insert_sym(name, sym, sym_table_id)
+    }
+
+    fn insert_type(&mut self, name: &String, ty: Ty, sym_table_id: SymtableId) -> Result<usize, ()> {
+        let ty_id = self.types.len();
+        self.types.push(ty);
+
+        let sym = Sym::Ty(Ty { kind: Tykind::Id(ty_id) });
+
+        self.insert_sym(name, sym, sym_table_id)
     }
 }
