@@ -10,7 +10,47 @@ pub enum Sym {
 
 #[derive(Clone, Debug)]
 pub struct Value {
+    expr: Expr,
     ty: Ty,
+}
+
+#[derive(Clone, Debug)]
+pub enum Operator {
+    Equal,
+    Add,
+    Minus,
+    Multiply,
+    Divide,
+    Dot,
+}
+
+#[derive(Clone, Debug)]
+pub struct Operation {
+    lhs: Box<Expr>,
+    rhs: Box<Expr>,
+    operator: Operator
+}
+
+#[derive(Clone, Debug)]
+pub enum Lit {
+    Int(i32),
+    Float(f32),
+    String(String)
+}
+
+#[derive(Clone, Debug)]
+pub struct FnCall {
+    ident: Box<Expr>,
+    arguments: Vec<Expr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum Expr {
+    Sym(SymId),
+    Literal(Lit),
+    FnCall(FnCall),
+    Operation(Operation),
+    Paren(Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -134,31 +174,6 @@ impl SymTable {
 
         return to_return
     }
-
-    pub fn new_layer(&mut self, layer_name: String, isolated: bool, sym_tables: &mut Vec<SymTable>) -> Result<(), String> {
-        if self.layers.get(&layer_name).is_some() {
-            panic!()
-        } else {
-            let mut prec_sym = Vec::new();
-            if !isolated {
-                prec_sym.clone_from_slice(&self.prec)
-            }
-            let id = sym_tables.len();
-
-            let new_sym_table = SymTable {
-                id,
-                prec: prec_sym,
-                symbols: HashMap::new(),
-                layers: HashMap::new()
-            };
-
-            sym_tables.push(new_sym_table);
-
-            self.layers.insert(layer_name, id);
-        }
-
-        panic!()
-    }
 }
 
 pub struct SemanticAnalizer<'a> {
@@ -182,7 +197,7 @@ impl<'a> SemanticAnalizer<'a> {
 
     pub fn sema(&mut self) {
         self.sema_validate_no_expr_in_top_file();
-        self.sema_insert_types_all_ast();
+        self.sema_insert_symbols_all_ast();
     }
 
     fn sema_validate_no_expr_in_top_file(&mut self) {
@@ -200,15 +215,15 @@ impl<'a> SemanticAnalizer<'a> {
         }
     }
 
-    fn sema_insert_types_all_ast(&mut self) {
+    fn sema_insert_symbols_all_ast(&mut self) {
         let sym_table = SymTable::new(0, Vec::new());
         self.sym_tables.push(sym_table);
         for node in &self.ast.inner {
-            self.sema_insert_types("package".to_string(), 0, node);
+            self.sema_insert_symbols("package".to_string(), 0, node);
         }
     }
 
-    fn sema_insert_types(&mut self, actual_path: String, sym_table_id: SymtableId, node: &parser::Node) {
+    fn sema_insert_symbols(&mut self, actual_path: String, sym_table_id: SymtableId, node: &parser::Node) {
         match node {
             parser::Node::Statement(stmt) => {
                 match stmt {
@@ -286,7 +301,12 @@ impl<'a> SemanticAnalizer<'a> {
                             kind: Tykind::Fn(Box::new(fn_ty))
                         };
 
-                        _ = self.insert_type(name, ty, sym_table_id)
+                        _ = self.insert_type(name, ty, sym_table_id);
+
+                        let symtable_id_fn = self.insert_new_layer_sym_table(sym_table_id, &fn_decl.name, false).unwrap();
+                        for node in &fn_decl.body {
+                            self.sema_insert_symbols(actual_path.clone() + "/#FN/" + &fn_decl.name, symtable_id_fn, node)
+                        }
                     }
                     _ => { //TODO
                     }
@@ -294,6 +314,33 @@ impl<'a> SemanticAnalizer<'a> {
             },
             parser::Node::Expr(_) => unreachable!(),
             _ => {  }
+        }
+    }
+
+    fn insert_new_layer_sym_table(&mut self, origin: SymtableId, layer_name: &String, isolated: bool) -> Result<SymtableId, String> {
+        let id = self.sym_tables.len();
+        let sym_table = &mut self.sym_tables[origin];
+
+        if sym_table.layers.get(layer_name).is_some() {
+            panic!()
+        } else {
+            let mut prec_sym = Vec::new();
+            if !isolated {
+                prec_sym.clone_from_slice(&sym_table.prec)
+            }
+
+            let new_sym_table = SymTable {
+                id,
+                prec: prec_sym,
+                symbols: HashMap::new(),
+                layers: HashMap::new()
+            };
+            sym_table.layers.insert(layer_name.clone(), id);
+            drop(sym_table);
+
+            self.sym_tables.push(new_sym_table);
+
+            return Ok(id)
         }
     }
 
