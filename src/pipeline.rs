@@ -16,6 +16,14 @@ pub struct PipelineOptions {
     pub write_sym_table: bool,
     pub write_types_sema: bool,
     pub write_sym_sema: bool,
+    pub write_profiling: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct Profiling {
+    lex: std::time::Duration,
+    parse: std::time::Duration,
+    sema: std::time::Duration,
 }
 
 pub struct Pipeline {
@@ -23,6 +31,7 @@ pub struct Pipeline {
     ast: Option<Ast>,
     file_path: String,
     options: PipelineOptions,
+    profiling: Profiling
 }
 
 impl Pipeline {
@@ -31,7 +40,8 @@ impl Pipeline {
             lex_tokens: Vec::new(),
             ast: None,
             file_path,
-            options
+            options,
+            profiling: Profiling::default()
         }
     }
 
@@ -40,6 +50,10 @@ impl Pipeline {
         self.lex(&file_string);
         self.parse();
         self.sema();
+        
+        if self.options.write_profiling {
+            self.write_debug_to_file(&self.profiling, "xi_output/profiling.txt");
+        }
     }
 
 
@@ -53,8 +67,12 @@ impl Pipeline {
     }
 
     pub fn lex(&mut self, file_string: &String) {
+        let t = std::time::Instant::now();
+
         let mut lexer = Lexer::new(file_string);
         let tokens = lexer.lex();
+
+        self.profiling.lex = t.elapsed();
 
         if self.options.write_tokens {
             self.write_debug_to_file(utils::FmtToken(&tokens), "xi_output/tokens.txt");
@@ -64,9 +82,13 @@ impl Pipeline {
     }
 
     fn parse(&mut self) {
+        let t = std::time::Instant::now();
+
         let mut parser = AstParser::new(&self.lex_tokens);
         let result = parser.parse();
         if result.is_err() { panic!("{:?}", result); }
+
+        self.profiling.parse = t.elapsed();
 
         if self.options.write_ast {
             self.write_debug_to_file(&parser.ast, "xi_output/ast.txt");
@@ -76,12 +98,16 @@ impl Pipeline {
     }
 
     fn sema(&mut self) {
+        let t = std::time::Instant::now();
+
         let mut sema = SemanticAnalizer::new(self.ast.as_ref().unwrap());
         sema.sema();
 
         if !sema.err.is_empty() {
             panic!("{:#?}", sema.err);
         }
+
+        self.profiling.sema = t.elapsed();
 
         if self.options.write_sym_table {
             self.write_debug_to_file(&sema.sym_tables, "xi_output/sym_table.txt");

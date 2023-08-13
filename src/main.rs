@@ -21,6 +21,7 @@ fn main() {
         else if arg_strip == "write_sym_table" { pipeline_options.write_sym_table = true; }
         else if arg_strip == "write_types_sema" { pipeline_options.write_types_sema = true; }
         else if arg_strip == "write_sym_sema" { pipeline_options.write_sym_sema = true; }
+        else if arg_strip == "write_profiling" { pipeline_options.write_profiling = true; }
         else { panic!("argument \"{arg}\" not recognized") }
     }
 
