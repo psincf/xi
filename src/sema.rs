@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::parser;
 
+#[derive(Clone, Debug)]
 pub struct Ir {
     pub inner: Vec<Node>,
 }
@@ -96,10 +97,18 @@ pub enum Tykind {
     Struct(Box<StructTy>),
     Enum(Box<EnumTy>),
     Fn(Box<FnTy>),
+    Primitive(Primitive),
     Id(TyId),
     Name(String),
     Inferred,
     None
+}
+
+#[derive(Clone, Debug)]
+pub enum Primitive {
+    I32,
+    F32,
+    String
 }
 
 #[derive(Clone, Debug)]
@@ -174,33 +183,19 @@ impl SymTable {
         Ok(())
     }
 
-    pub fn in_scope(&self, sym: String, sym_tables: &Vec<SymTable>) -> Result<TyId, String> {
-        let mut to_return = Err(format!("no type: {}", sym));
-        for &id in &self.prec {
-            let sym_table_prec = &sym_tables[id];
-            if sym_table_prec.symbols.get(&sym).is_some() {
-                if to_return.is_err() {
-                    to_return = Ok(sym_table_prec.symbols.get(&sym).unwrap().clone());
-                } else {
-                    to_return = Err(format!("More than one: {}", sym))
-                }
-            }
+    pub fn get_symbol(&self, sym: &String) -> Result<SymId, String> {
+        let sym_id_option = self.symbols.get(sym);
+        if sym_id_option.is_some() {
+            return Ok(*sym_id_option.unwrap())
+        } else {
+            return Err("No symbol".to_string())
         }
-
-        if self.symbols.get(&sym).is_some() {
-            if to_return.is_err() {
-                to_return = Ok(self.symbols.get(&sym).unwrap().clone());
-            } else {
-                to_return = Err(format!("More than one: {}", sym))
-            }
-        }
-
-        return to_return
     }
 }
 
 pub struct SemanticAnalizer<'a> {
     ast: &'a parser::Ast,
+    pub ir: Ir,
     pub types: Vec<Ty>,
     pub symbols: Vec<Sym>,
     pub sym_tables: Vec<SymTable>,
@@ -211,6 +206,7 @@ impl<'a> SemanticAnalizer<'a> {
     pub fn new(ast: &'a parser::Ast) -> Self {
         Self {
             ast,
+            ir: Ir { inner: Vec::new() },
             types: Vec::new(),
             symbols: Vec::new(),
             sym_tables: Vec::new(),
@@ -221,6 +217,7 @@ impl<'a> SemanticAnalizer<'a> {
     pub fn sema(&mut self) {
         self.sema_validate_no_expr_in_top_file();
         self.sema_insert_symbols_all_ast();
+        self.sema_check_symbols_all_ast();
     }
 
     fn sema_validate_no_expr_in_top_file(&mut self) {
@@ -239,7 +236,7 @@ impl<'a> SemanticAnalizer<'a> {
     }
 
     fn sema_insert_symbols_all_ast(&mut self) {
-        let sym_table = SymTable::new(0, Vec::new());
+        let sym_table = SymTable::new(self.sym_tables.len(), Vec::new());
         self.sym_tables.push(sym_table);
         for node in &self.ast.inner {
             self.sema_insert_symbols("package".to_string(), 0, node);
@@ -353,6 +350,65 @@ impl<'a> SemanticAnalizer<'a> {
         }
     }
 
+    fn sema_check_symbols_all_ast(&mut self) {
+        let mut ir_nodes = Vec::new();
+        for node in &self.ast.inner {
+            ir_nodes.push(
+                self.sema_check_symbols("package".to_string(), 0, node)
+            );
+        }
+
+        self.ir.inner = ir_nodes;
+    }
+
+    fn sema_check_symbols(&mut self, actual_path: String, sym_table_id: SymtableId, node: &parser::Node) -> Node {
+        match node {
+            parser::Node::Statement(stmt) => {
+                match stmt {
+                    parser::Statement::EnumDecl(e) => {
+                        let enum_ty_id = self.get_type_id(&e.name, sym_table_id);
+                        return Node::Statement(
+                            Statement::EnumDecl(enum_ty_id)
+                        )
+                    },
+                    parser::Statement::StructDecl(s) => {
+                        let struct_ty_id = self.get_type_id(&s.name, sym_table_id);
+
+                        let ty = unsafe {&mut (self as *mut Self).as_mut().unwrap().types[struct_ty_id] };
+                        match &mut ty.kind {
+                            Tykind::Struct(s_ty) => {
+                                for field in s_ty.fields.iter_mut() {
+                                    match field.ty.kind.clone() {
+                                        Tykind::Inferred => panic!("Inferrence not implemented"),
+                                        Tykind::Name(s) => {
+                                            if get_primitive(&s).is_some() {
+                                                field.ty.kind = Tykind::Primitive(get_primitive(&s).unwrap())
+                                            } else {
+                                                let id_field = self.get_sym_in_scope(&s, sym_table_id);
+                                                match id_field {
+                                                    Ok(id) => field.ty.kind = Tykind::Id(id),
+                                                    Err(()) => panic!("Type {} not found", s)
+                                                }
+                                            }
+                                        }
+                                        _ => unreachable!()
+                                    }
+                                }
+                            }
+                            _ => panic!()
+                        }
+
+                        return Node::Statement(
+                            Statement::StructDecl(struct_ty_id)
+                        )
+                    },
+                    _ => { Node::None }
+                }
+            }
+            _ => { Node::None }
+        }
+    }
+
     fn insert_new_layer_sym_table(&mut self, origin: SymtableId, layer_name: &String, isolated: bool) -> Result<SymtableId, String> {
         let id = self.sym_tables.len();
         let sym_table = &mut self.sym_tables[origin];
@@ -418,5 +474,55 @@ impl<'a> SemanticAnalizer<'a> {
         let sym = Sym::Ty(Ty { kind: Tykind::Id(ty_id) });
 
         self.insert_sym(name, sym, sym_table_id)
+    }
+
+    fn get_sym_in_scope(&self, sym: &String, sym_table_id: usize) -> Result<SymId, ()> {
+        let mut to_return = Err(());
+        let sym_table = &self.sym_tables[sym_table_id];
+        for &id in &sym_table.prec {
+            let sym_table_prec = &self.sym_tables[id];
+            if sym_table_prec.symbols.get(sym).is_some() {
+                if to_return.is_err() {
+                    to_return = Ok(sym_table_prec.symbols.get(sym).unwrap().clone());
+                } else {
+                    to_return = Err(())
+                }
+            }
+        }
+
+        if sym_table.get_symbol(sym).is_ok() {
+            if to_return.is_err() {
+                to_return = Ok(sym_table.get_symbol(sym).unwrap().clone());
+            } else {
+                to_return = Err(())
+            }
+        }
+
+        return to_return
+    }
+
+    fn get_type_id(&self, name: &String, sym_table_id: SymtableId) -> TyId {
+        let sym_table = &self.sym_tables[sym_table_id];
+        let sym_id = sym_table.get_symbol(name).unwrap();
+        let sym = &self.symbols[sym_id];
+
+        match sym {
+            Sym::Ty(ty) => {
+                match ty.kind {
+                   Tykind::Id(id) => return id,
+                   _ => { panic!() }
+                }
+            }
+            _ => { panic!() }
+        }
+    }
+}
+
+fn get_primitive(s: &String) -> Option<Primitive> {
+    match s.as_str() {
+        "i32" => Some(Primitive::I32),
+        "f32" => Some(Primitive::F32),
+        "String" => Some(Primitive::String),
+        _ => return None
     }
 }

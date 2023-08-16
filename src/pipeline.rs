@@ -13,6 +13,7 @@ use super::utils;
 pub struct PipelineOptions {
     pub write_tokens: bool,
     pub write_ast: bool,
+    pub write_ir: bool,
     pub write_sym_table: bool,
     pub write_types_sema: bool,
     pub write_sym_sema: bool,
@@ -119,6 +120,10 @@ impl Pipeline {
 
         if self.options.write_sym_sema {
             self.write_debug_to_file(&sema.symbols, "xi_output/sym_sema.txt");
+        }
+
+        if self.options.write_ir {
+            self.write_debug_to_file(&sema.ir, "xi_output/ir.txt");
         }
     }
 
