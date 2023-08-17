@@ -26,7 +26,7 @@ pub enum Statement {
 
 #[derive(Clone, Debug)]
 pub enum Sym {
-    Ty(Ty),
+    Ty(TyId),
     Value(Value)
 }
 
@@ -137,7 +137,8 @@ pub struct FnTy {
     name: String,
     paramaters: Vec<Param>,
     return_type: Ty,
-    body: &'static Vec<parser::Node>
+    body: Vec<Node>,
+    body_ast: &'static Vec<parser::Node>
 }
 
 #[derive(Clone, Debug)]
@@ -314,7 +315,8 @@ impl<'a> SemanticAnalizer<'a> {
                             name: name.clone(),
                             paramaters: params,
                             return_type: Ty { kind: return_type },
-                            body: unsafe { std::mem::transmute(body) }
+                            body: Vec::new(),
+                            body_ast: unsafe { std::mem::transmute(body) }
                         };
 
                         let ty = Ty {
@@ -371,8 +373,8 @@ impl<'a> SemanticAnalizer<'a> {
                             Statement::EnumDecl(enum_ty_id)
                         )
                     },
-                    parser::Statement::StructDecl(s) => {
-                        let struct_ty_id = self.get_type_id(&s.name, sym_table_id);
+                    parser::Statement::StructDecl(struct_decl) => {
+                        let struct_ty_id = self.get_type_id(&struct_decl.name, sym_table_id);
 
                         let ty = unsafe {&mut (self as *mut Self).as_mut().unwrap().types[struct_ty_id] };
                         match &mut ty.kind {
@@ -386,7 +388,14 @@ impl<'a> SemanticAnalizer<'a> {
                                             } else {
                                                 let id_field = self.get_sym_in_scope(&s, sym_table_id);
                                                 match id_field {
-                                                    Ok(id) => field.ty.kind = Tykind::Id(id),
+                                                    Ok(id) => {
+                                                        match &self.symbols[id] {
+                                                            Sym::Ty(ty_id) => {
+                                                                field.ty = Ty { kind: Tykind::Id(*ty_id) }
+                                                            }
+                                                            _ => panic!("{} is not a Type", s)
+                                                        }
+                                                    },
                                                     Err(()) => panic!("Type {} not found", s)
                                                 }
                                             }
@@ -402,6 +411,49 @@ impl<'a> SemanticAnalizer<'a> {
                             Statement::StructDecl(struct_ty_id)
                         )
                     },
+                    parser::Statement::FnDecl(fn_decl) => {
+                        let fndecl_ty_id = self.get_type_id(&fn_decl.name, sym_table_id);
+
+                        let ty = unsafe {&mut (self as *mut Self).as_mut().unwrap().types[fndecl_ty_id] };
+                        match &mut ty.kind {
+                            Tykind::Fn(fn_ty) => {
+                                for params in &mut fn_ty.paramaters {
+                                    let mut new_ty_kind = params.ty.kind.clone();
+
+                                    match &params.ty.kind {
+                                        Tykind::Inferred => { unimplemented!() },
+                                        Tykind::Name(n) => {
+                                            if get_primitive(n).is_some() {
+                                                new_ty_kind = Tykind::Primitive(get_primitive(n).unwrap())
+                                            } else {
+                                                let id_param = self.get_sym_in_scope(n, sym_table_id);
+                                                match id_param {
+                                                    Ok(id) => {
+                                                        match &self.symbols[id] {
+                                                            Sym::Ty(ty_id) => {
+                                                                new_ty_kind = Tykind::Id(*ty_id)
+                                                            }
+                                                            _ => panic!("{} is not a Type", n)
+                                                        }
+                                                    },
+                                                    Err(()) => panic!("Type {} not found", n)
+                                                }
+                                            }
+                                        }
+                                        _ => { unreachable!() }
+                                    }
+
+                                    params.ty.kind = new_ty_kind;
+                                }
+                            }
+                            _ => unreachable!()
+                        }
+
+
+
+                        return Node::Statement(Statement::FnDecl(fndecl_ty_id))
+
+                    }
                     _ => { Node::None }
                 }
             }
@@ -471,7 +523,7 @@ impl<'a> SemanticAnalizer<'a> {
         let ty_id = self.types.len();
         self.types.push(ty);
 
-        let sym = Sym::Ty(Ty { kind: Tykind::Id(ty_id) });
+        let sym = Sym::Ty(ty_id);
 
         self.insert_sym(name, sym, sym_table_id)
     }
@@ -507,12 +559,9 @@ impl<'a> SemanticAnalizer<'a> {
         let sym = &self.symbols[sym_id];
 
         match sym {
-            Sym::Ty(ty) => {
-                match ty.kind {
-                   Tykind::Id(id) => return id,
-                   _ => { panic!() }
+            Sym::Ty(ty_id) => {
+                   return *ty_id
                 }
-            }
             _ => { panic!() }
         }
     }
