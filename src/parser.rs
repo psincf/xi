@@ -1,5 +1,6 @@
 use super::lexer::Token;
 use super::lexer::TokenKind;
+use super::lexer::Span;
 
 #[derive(Clone, Debug)]
 pub struct Ast {
@@ -40,9 +41,10 @@ pub struct Param {
 #[derive(Clone, Debug)]
 pub struct FnDecl {
     pub name: String,
-    pub paramaters: Vec<Param>,
+    pub parameters: Vec<Param>,
     pub return_type: Type,
-    pub body: Vec<Node>
+    pub body: Vec<Node>,
+    pub span: Span
 }
 
 #[derive(Clone, Debug)]
@@ -51,6 +53,7 @@ pub struct VarDecl {
     pub ident: String,
     pub ty: Type,
     pub expr: Expr,
+    pub span: Span
 }
 
 #[derive(Clone, Debug)]
@@ -80,9 +83,9 @@ pub enum Operator {
 
 #[derive(Clone, Debug)]
 pub struct Operation {
-    lhs: Box<Expr>,
-    rhs: Box<Expr>,
-    operator: Operator
+    pub lhs: Box<Expr>,
+    pub rhs: Box<Expr>,
+    pub operator: Operator
 }
 
 #[derive(Clone, Debug)]
@@ -381,20 +384,27 @@ impl<'a> AstParser<'a> {
     }
 
     fn parse_let_stmt(&mut self) -> Result<VarDecl, String> {
-        self.parse_exact_nowh_nonl(TokenKind::KeywordLet)?;
+        let token_begin = self.parse_exact_nowh_nonl(TokenKind::KeywordLet)?;
         let ident = self.parse_ident_nowh_nonl()?;
+        let mut ty = Type::Inferred;
+
+        let typed = self.parse_exact_nowh_nonl(TokenKind::Colon);
+        if typed.is_ok() {
+            ty = self.parse_type()?;
+        } else {
+            self.tokens.reverse()
+        }
         
         self.parse_exact_nowh_nonl(TokenKind::Equal)?;
         let expr = self.parse_expr()?;
         self.parse_exact_nowh_nonl(TokenKind::Semicolon)?;
 
-        let ty = Type::Inferred;
-
         let decl = VarDecl {
             mutable: true,
             ty,
             ident,
-            expr
+            expr,
+            span: token_begin.span
         };
 
         return Ok(decl)
@@ -418,14 +428,14 @@ impl<'a> AstParser<'a> {
         return Ok(Operation { lhs: Box::new(lhs), rhs: Box::new(rhs), operator })
     }
 
-    fn parse_exact_nowh_nonl(&mut self, token_kind: TokenKind) -> Result<(), String> {
+    fn parse_exact_nowh_nonl(&mut self, token_kind: TokenKind) -> Result<Token, String> {
         let token = self.tokens.next_nowh_nonl().unwrap();
 
         if token.kind != token_kind {
             return Err(format!("Wrong token: {:?} \nexpected: {:?}, found: {:?}", token.span, token_kind, token.kind))
         }
 
-        Ok(())
+        Ok(token)
     }
 
     fn parse_ident_nowh_nonl(&mut self) -> Result<String, String> {
@@ -444,15 +454,17 @@ impl<'a> AstParser<'a> {
         }
     }
 
-    fn parse_fndecl(&mut self) -> Result<(FnDecl), String> {
+    fn parse_fndecl(&mut self) -> Result<FnDecl, String> {
         let mut fn_decl = FnDecl {
             name: String::new(),
-            paramaters: Vec::new(),
+            parameters: Vec::new(),
             return_type: Type::None,
-            body: Vec::new()
+            body: Vec::new(),
+            span: Span::default()
         };
 
-        self.parse_exact_nowh_nonl(TokenKind::KeywordFn)?;
+        let token_begin = self.parse_exact_nowh_nonl(TokenKind::KeywordFn)?;
+        fn_decl.span = token_begin.span;
 
         let token_name = self.parse_ident_nowh_nonl()?;
         fn_decl.name = token_name;

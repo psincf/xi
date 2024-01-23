@@ -1,7 +1,7 @@
 use std::str::Chars;
 
 #[allow(unused)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Span {
     line: i32,
     column: i32

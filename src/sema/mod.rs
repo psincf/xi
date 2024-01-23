@@ -4,9 +4,11 @@ mod sym_second_pass;
 
 use std::collections::HashMap;
 
+use super::pipeline::Library;
 use super::parser;
+use super::lexer::Span;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Ir {
     pub inner: Vec<Node>,
 }
@@ -22,16 +24,30 @@ pub enum Node {
 pub enum Statement {
     StructDecl(TyId),
     EnumDecl(TyId),
-    FnDecl(TyId),
-    VarDecl(SymId, Expr),
+    FnDecl(FnDecl),
+    VarDecl(VarDecl),
     //ModDecl(ModeDecl),
     Expr(Expr)
 }
 
 #[derive(Clone, Debug)]
+pub struct VarDecl {
+    id: SymId,
+    expr: Expr
+}
+
+#[derive(Clone, Debug)]
+pub struct FnDecl {
+    id: SymId,
+    body: Vec<Node>
+}
+
+#[derive(Clone, Debug)]
 pub enum Sym {
     Ty(TyId),
-    Value(Value)
+    Value(Value),
+    Namespace(String),
+    External(String, Option<SymId>)
 }
 
 #[derive(Clone, Debug)]
@@ -39,6 +55,8 @@ pub struct Value {
     ident: String,
     mutable: bool,
     ty: Ty,
+    span: Span,
+    isolated: bool
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +67,19 @@ pub enum Operator {
     Multiply,
     Divide,
     Dot,
+}
+
+impl Operator {
+    pub fn from_op_ast(op: &parser::Operator) -> Self {
+        match op {
+            parser::Operator::Add => { return Self::Add },
+            parser::Operator::Dot => { return Self::Dot },
+            parser::Operator::Minus => { return Self::Minus },
+            parser::Operator::Multiply => { return Self::Multiply },
+            parser::Operator::Divide => { return Self::Divide },
+            parser::Operator::Equal => { return Self::Equal }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -78,6 +109,8 @@ pub enum Expr {
     FnCall(FnCall),
     Operation(Operation),
     Paren(Box<Expr>),
+    Unresolved(*const parser::Expr),
+    None
 }
 
 #[derive(Clone, Debug)]
@@ -139,10 +172,8 @@ pub struct EnumTy {
 pub struct FnTy {
     pub path: String,
     name: String,
-    paramaters: Vec<Param>,
+    parameters: Vec<Param>,
     return_type: Ty,
-    body: Vec<Node>,
-    body_ast: &'static Vec<parser::Node>
 }
 
 #[derive(Clone, Debug)]
@@ -163,6 +194,7 @@ pub type SymtableId = usize;
 
 #[derive(Debug, Default)]
 pub struct SymTable {
+    isolated: bool,
     id: SymtableId,
     prec: Vec<SymtableId>,
     symbols: HashMap<String, SymId>,
@@ -172,6 +204,7 @@ pub struct SymTable {
 impl SymTable {
     pub fn new(id: SymtableId, prec: Vec<SymtableId>) -> Self {
         Self {
+            isolated: false,
             id,
             prec,
             symbols: HashMap::new(),
@@ -198,31 +231,51 @@ impl SymTable {
     }
 }
 
+#[derive(Default)]
+pub struct SemaIr {
+    pub ir: Ir,
+    pub types: Vec<Ty>,
+    pub symbols: Vec<Sym>,
+    pub sym_tables: Vec<SymTable>,
+}
+
 pub struct SemanticAnalizer<'a> {
     ast: &'a parser::Ast,
     pub ir: Ir,
     pub types: Vec<Ty>,
     pub symbols: Vec<Sym>,
     pub sym_tables: Vec<SymTable>,
+    pub libraries: &'a Vec<Library>,
+    pub libraries_hash: &'a HashMap<String, usize>,
     pub err: Vec<String>
 }
 
 impl<'a> SemanticAnalizer<'a> {
-    pub fn new(ast: &'a parser::Ast) -> Self {
+    pub fn new(ast: &'a parser::Ast, libraries: &'a Vec<Library>, libraries_hash: &'a HashMap<String, usize>) -> Self {
         Self {
             ast,
             ir: Ir { inner: Vec::new() },
             types: Vec::new(),
             symbols: Vec::new(),
             sym_tables: Vec::new(),
+            libraries,
+            libraries_hash,
             err: Vec::new()
         }
     }
 
-    pub fn sema(&mut self) {
+    pub fn sema(&mut self) -> SemaIr {
         basic_validation::sema_validate_no_expr_in_top_file(self);
         sym_first_pass::sema_insert_symbols_all_ast(self);
         sym_second_pass::sema_check_symbols_all_ast(self);
+
+        let mut sema_ir = SemaIr::default();
+        std::mem::swap(&mut sema_ir.ir, &mut self.ir);
+        std::mem::swap(&mut sema_ir.types, &mut self.types);
+        std::mem::swap(&mut sema_ir.symbols, &mut self.symbols);
+        std::mem::swap(&mut sema_ir.sym_tables, &mut self.sym_tables);
+
+        return sema_ir;
     }
 
     fn insert_new_layer_sym_table(&mut self, origin: SymtableId, layer_name: &String, isolated: bool) -> Result<SymtableId, String> {
@@ -233,11 +286,10 @@ impl<'a> SemanticAnalizer<'a> {
             panic!()
         } else {
             let mut prec_sym = Vec::new();
-            if !isolated {
-                prec_sym.clone_from_slice(&sym_table.prec)
-            }
+            prec_sym.push(origin);
 
             let new_sym_table = SymTable {
+                isolated,
                 id,
                 prec: prec_sym,
                 symbols: HashMap::new(),
@@ -292,29 +344,87 @@ impl<'a> SemanticAnalizer<'a> {
         self.insert_sym(name, sym, sym_table_id)
     }
 
-    fn get_sym_in_scope(&self, sym: &String, sym_table_id: usize) -> Result<SymId, ()> {
-        let mut to_return = Err(());
-        let sym_table = &self.sym_tables[sym_table_id];
-        for &id in &sym_table.prec {
-            let sym_table_prec = &self.sym_tables[id];
-            if sym_table_prec.symbols.get(sym).is_some() {
+    fn get_sym_ext_resolved(&self, sym: &'a Sym) -> &'a Sym {
+        match sym {
+            Sym::External(lib, sym_id) => {
+                let lib_num = self.libraries_hash.get(lib).unwrap();
+                let lib = &self.libraries[*lib_num];
+                if sym_id.is_none() { return sym }
+
+                let resolved_sym = &lib.sema_ir.as_ref().unwrap().symbols[sym_id.unwrap()];
+                return self.get_sym_ext_resolved(resolved_sym);
+            }
+            _ => {
+                return sym
+            }
+        }
+        //TODO
+    }
+
+    fn get_sym_in_scope(&self, sym: &String, sym_table_id: usize) -> Result<SymId, String> {
+        fn get_sym_inner(sema: &SemanticAnalizer, sym: &String, sym_table_id: usize, isolated_context: bool) -> Result<SymId, String> {
+            let mut to_return = Err("".to_string());
+            let sym_table = &sema.sym_tables[sym_table_id];
+
+            for &id in &sym_table.prec {
+                let new_isolated_context = sym_table.isolated || isolated_context;
+                to_return = get_sym_inner(sema, sym, id, new_isolated_context);
+            }
+            if sym_table.get_symbol(sym).is_ok() {
                 if to_return.is_err() {
-                    to_return = Ok(sym_table_prec.symbols.get(sym).unwrap().clone());
+                    if isolated_context {
+                        let sym = sym_table.get_symbol(sym).unwrap();
+                        match sema.get_sym_ext_resolved(&sema.symbols[sym]) {
+                            Sym::Ty(_) => { to_return = Ok(sym.clone()); },
+                            Sym::Namespace(_) => { to_return = Ok(sym.clone()); },
+                            Sym::Value(value) => {
+                                if !value.isolated {
+                                    to_return = Ok(sym.clone());
+                                }
+                            }
+                            Sym::External(lib, id) => {
+                                assert!(id.is_none());
+                                to_return = Ok(sym.clone());
+                            }
+                        }
+                    } else {
+                        to_return = Ok(sym_table.get_symbol(sym).unwrap().clone());
+                    }
                 } else {
-                    to_return = Err(())
+                    to_return = Err("duplicate".to_string())
                 }
             }
+
+            return to_return
         }
 
-        if sym_table.get_symbol(sym).is_ok() {
-            if to_return.is_err() {
-                to_return = Ok(sym_table.get_symbol(sym).unwrap().clone());
-            } else {
-                to_return = Err(())
-            }
-        }
+        return get_sym_inner(self, sym, sym_table_id, false);
 
-        return to_return
+    }
+
+    fn get_value_id(&self, name: &String, sym_table_id: SymtableId) -> SymId {
+        let sym_table = &self.sym_tables[sym_table_id];
+        let sym_id = sym_table.get_symbol(name).unwrap();
+        let sym = &self.symbols[sym_id];
+
+        match sym {
+            Sym::Value(v) => {
+                   return (sym_id)
+                }
+            _ => { panic!("{}", name) }
+        }
+    }
+
+    fn get_value_mut(&mut self, sym_id: usize, sym_table_id: SymtableId) -> &mut Value {
+        let sym_table = &self.sym_tables[sym_table_id];
+        let sym = &mut self.symbols[sym_id];
+
+        match sym {
+            Sym::Value(v) => {
+                   return v
+                }
+            _ => { panic!("{}", sym_id) }
+        }
     }
 
     fn get_type_id(&self, name: &String, sym_table_id: SymtableId) -> TyId {
@@ -326,7 +436,7 @@ impl<'a> SemanticAnalizer<'a> {
             Sym::Ty(ty_id) => {
                    return *ty_id
                 }
-            _ => { panic!() }
+            _ => { panic!("{}", name) }
         }
     }
 }

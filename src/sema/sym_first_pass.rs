@@ -1,5 +1,6 @@
 use crate::sema::{
     SemanticAnalizer,
+    Sym,
     SymTable,
     SymtableId,
     EnumTy,
@@ -18,6 +19,10 @@ use crate::parser;
 pub fn sema_insert_symbols_all_ast(sema: &mut SemanticAnalizer) {
     let sym_table = SymTable::new(sema.sym_tables.len(), Vec::new());
     sema.sym_tables.push(sym_table);
+    for (lib_name, _) in sema.libraries_hash {
+        let sym = Sym::External(lib_name.clone(), None);
+        sema.insert_sym(lib_name, sym, 0).unwrap();
+    }
     for node in &sema.ast.inner {
         sema_insert_symbols(sema, "package".to_string(), 0, node);
     }
@@ -68,7 +73,7 @@ fn sema_insert_symbols(sema: &mut SemanticAnalizer, actual_path: String, sym_tab
                 }
                 parser::Statement::FnDecl(fn_decl) => {
                     let name = &fn_decl.name;
-                    let params: Vec<Param> = fn_decl.paramaters.iter().map(|p| {
+                    let params: Vec<Param> = fn_decl.parameters.iter().map(|p| {
                         let ty: String = match &p.type_{
                             parser::Type::Ident(id) => id.clone(),
                             _ => unreachable!()
@@ -88,23 +93,30 @@ fn sema_insert_symbols(sema: &mut SemanticAnalizer, actual_path: String, sym_tab
                     };
 
                     let body = &fn_decl.body;
-
+                    
                     let fn_ty = FnTy {
                         path: actual_path.clone(),
                         name: name.clone(),
-                        paramaters: params,
+                        parameters: params,
                         return_type: Ty { kind: return_type },
-                        body: Vec::new(),
-                        body_ast: unsafe { std::mem::transmute(body) }
                     };
+
 
                     let ty = Ty {
                         kind: Tykind::Fn(Box::new(fn_ty))
                     };
+                    
+                    let fn_value = Value {
+                        ident: name.clone(),
+                        mutable: false,
+                        ty: ty,
+                        span: fn_decl.span,
+                        isolated: false
+                    };
 
-                    _ = sema.insert_type(name, ty, sym_table_id);
+                    _ = sema.insert_value(name, fn_value, sym_table_id);
 
-                    let symtable_id_fn = sema.insert_new_layer_sym_table(sym_table_id, &fn_decl.name, false).unwrap();
+                    let symtable_id_fn = sema.insert_new_layer_sym_table(sym_table_id, &fn_decl.name, true).unwrap();
                     for node in &fn_decl.body {
                         sema_insert_symbols(sema, actual_path.clone() + "/#FN/" + &fn_decl.name, symtable_id_fn, node)
                     }
@@ -118,7 +130,7 @@ fn sema_insert_symbols(sema: &mut SemanticAnalizer, actual_path: String, sym_tab
                         _ => panic!("{:?}", var_decl)
                     };
 
-                    let value = Value { ident: ident.clone(), mutable, ty };
+                    let value = Value { ident: ident.clone(), mutable, ty, span: var_decl.span, isolated: true };
                     
                     _ = sema.insert_value(ident, value, sym_table_id);
                 }

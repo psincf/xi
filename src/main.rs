@@ -1,6 +1,7 @@
 mod lexer;
 mod parser;
 mod sema;
+mod cgen;
 
 mod pipeline;
 mod utils;
@@ -9,6 +10,7 @@ fn main() {
     let file_path = std::env::args().nth(1).unwrap();
     
     let mut pipeline_options = pipeline::PipelineOptions::default();
+    pipeline_options.location_debug_info = "xi_output/main/".to_string();
 
     for arg in std::env::args().skip(2) {
         let (minus_minus, arg_strip) = arg.split_at(2);
